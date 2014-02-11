@@ -1,64 +1,64 @@
 module Jekyll
   class Site
-    attr_accessor :config, :layouts, :posts, :pages, :static_files,
-                  :categories, :exclude, :include, :source, :dest, :lsi, :highlighter,
-                  :permalink_style, :tags, :time, :future, :safe, :plugins, :limit_posts,
-                  :show_drafts, :keep_files, :baseurl, :data, :file_read_opts, :gems
-
-    attr_accessor :converters, :generators
+    attr_reader :config, :layouts, :pages, :static_files, :categories, :exclude,
+                :include, :source, :dest, :lsi, :highlighter, :permalink_style,
+                :tags, :time, :future, :safe, :plugins, :limit_posts,
+                :show_drafts, :keep_files, :baseurl, :data, :file_read_opts,
+                :gems, :collections, :converters, :generators
 
     # Public: Initialize a new Site.
     #
     # config - A Hash containing site configuration details.
     def initialize(config)
-      self.config          = config.clone
+      @config          = config.clone
 
       %w[safe lsi highlighter baseurl exclude include future show_drafts limit_posts keep_files gems].each do |opt|
-        self.send("#{opt}=", config[opt])
+        self.instance_variable_set("@#{opt}", config[opt])
       end
 
-      self.source          = File.expand_path(config['source'])
-      self.dest            = File.expand_path(config['destination'])
-      self.plugins         = plugins_path
-      self.permalink_style = config['permalink'].to_sym
+      @source          = File.expand_path(config['source'])
+      @dest            = File.expand_path(config['destination'])
+      @plugins         = plugins_path
+      @permalink_style = config['permalink'].to_sym
 
-      self.file_read_opts = {}
-      self.file_read_opts[:encoding] = config['encoding'] if config['encoding']
+      @file_read_opts = {}
+      @file_read_opts[:encoding] = config['encoding'] if config['encoding']
 
-      self.reset
-      self.setup
+      reset
+      setup
     end
 
     # Public: Read, process, and write this Site to output.
     #
     # Returns nothing.
     def process
-      self.reset
-      self.read
-      self.generate
-      self.render
-      self.cleanup
-      self.write
+      reset
+      read
+      generate
+      render
+      cleanup
+      write
     end
 
     # Reset Site details.
     #
     # Returns nothing
     def reset
-      self.time            = if self.config['time']
-                               Time.parse(self.config['time'].to_s)
-                             else
-                               Time.now
-                             end
-      self.layouts         = {}
-      self.posts           = []
-      self.pages           = []
-      self.static_files    = []
-      self.categories      = Hash.new { |hash, key| hash[key] = [] }
-      self.tags            = Hash.new { |hash, key| hash[key] = [] }
-      self.data            = {}
+      @time            = if self.config['time']
+                           Time.parse(self.config['time'].to_s)
+                         else
+                           Time.now
+                         end
+      @layouts         = {}
+      @collections     = {}
+      @posts           = []
+      @pages           = []
+      @static_files    = []
+      @categories      = Hash.new { |hash, key| hash[key] = [] }
+      @tags            = Hash.new { |hash, key| hash[key] = [] }
+      @data            = {}
 
-      if self.limit_posts < 0
+      if limit_posts < 0
         raise ArgumentError, "limit_posts must be a non-negative number"
       end
     end
@@ -71,9 +71,9 @@ module Jekyll
 
       # If safe mode is off, load in any Ruby files under the plugins
       # directory.
-      unless self.safe
-        self.plugins.each do |plugins|
-            Dir[File.join(plugins, "**/*.rb")].sort.each do |f|
+      unless safe
+        plugins_path.each do |a_plugins_path|
+            Dir[File.join(a_plugins_path, "**/*.rb")].sort.each do |f|
               require f
             end
         end
@@ -81,15 +81,15 @@ module Jekyll
 
       require_gems
 
-      self.converters = instantiate_subclasses(Jekyll::Converter)
-      self.generators = instantiate_subclasses(Jekyll::Generator)
+      @converters = instantiate_subclasses(Jekyll::Converter)
+      @generators = instantiate_subclasses(Jekyll::Generator)
     end
 
     # Check that the destination dir isn't the source dir or a directory
     # parent to the source dir.
     def ensure_not_in_dest
-      dest = Pathname.new(self.dest)
-      Pathname.new(self.source).ascend do |path|
+      dest = Pathname.new(dest)
+      Pathname.new(source).ascend do |path|
         if path == dest
           raise FatalException.new "Destination directory cannot be or contain the Source directory."
         end
@@ -97,7 +97,7 @@ module Jekyll
     end
 
     def require_gems
-      self.gems.each do |gem|
+      gems.each do |gem|
         if plugin_allowed?(gem)
           require gem
         end
@@ -105,11 +105,11 @@ module Jekyll
     end
 
     def plugin_allowed?(gem_name)
-      whitelist.include?(gem_name) || !self.safe
+      whitelist.include?(gem_name) || !safe
     end
 
     def whitelist
-      @whitelist ||= Array[self.config['whitelist']].flatten || []
+      @whitelist ||= (Array[config['whitelist']].flatten || [])
     end
 
     # Internal: Setup the plugin search path
@@ -117,7 +117,7 @@ module Jekyll
     # Returns an Array of plugin search paths
     def plugins_path
       if (config['plugins'] == Jekyll::Configuration::DEFAULTS['plugins'])
-        [File.join(self.source, config['plugins'])]
+        [File.join(source, config['plugins'])]
       else
         Array(config['plugins']).map { |d| File.expand_path(d) }
       end
@@ -127,10 +127,24 @@ module Jekyll
     #
     # Returns nothing.
     def read
-      self.layouts = LayoutReader.new(self).read
-      self.collections = CollectionsReader.new(self).read
-      self.read_directories
-      self.read_data(config['data_source'])
+      @layouts     = LayoutReader.new(self).read
+      @collections = CollectionsReader.new(self).read
+      @pages       = PagesReader.new(self).read
+      @data        = DataReader.new(self).read
+    end
+
+    # Fetch the site posts
+    #
+    # Returns the array of `Post` objects
+    def posts
+      collections["posts"]
+    end
+
+    # Fetch the site drafts
+    #
+    # Returns the array of `Draft` objects
+    def drafts
+      collections["drafts"]
     end
 
     # Recursively traverse directories to find posts, pages and static files
@@ -407,10 +421,6 @@ module Jekyll
 
     def has_relative_page?
       self.pages.any? { |page| page.uses_relative_permalinks }
-    end
-
-    def has_yaml_header?(file)
-      "---" == File.open(file) { |fd| fd.read(3) }
     end
 
     def limit_posts!
