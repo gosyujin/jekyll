@@ -34,7 +34,7 @@ module Jekyll
     end
 
     def layout_directory
-      File.join(site.source, site.config['layouts'])
+      Jekyll.sanitized_path(site.source, site.config['layouts'])
     end
   end
 end
